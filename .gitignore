@@ -1,0 +1,12 @@
+*.obj
+*.map
+*.exe
+*.pdb
+*.lib
+*.exp
+
+build/*
+
+# School files
+sujet.pdf
+AUTHORS.txt
