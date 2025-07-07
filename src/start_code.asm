@@ -19,10 +19,11 @@ _next:
 
     add rsp, 40           ; restaure la pile
 
-    ; ; accès delta value via RIP-relative offset from rbp
-    ; mov rbx, [rbp + (delta - payload)]  ; rbx = delta (stored offset to OEP)
-    ; add rbx, rbp                        ; rbx = original entry point (absolute)
-    ; call rbx
+    ; accès delta value via RIP-relative offset from rbp
+    mov rbx, [rbp + (delta - payload)]  ; rbx = delta (stored offset to OEP)
+    sub rbx, 1
+    add rbx, rbp                        ; rbx = original entry point (absolute)
+    jmp rbx
 vars:
     delta label QWORD
     dq 0        ; patched with offset of main_payload

