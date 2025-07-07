@@ -21,7 +21,6 @@ _next:
 
     ; accès delta value via RIP-relative offset from rbp
     mov rbx, [rbp + (delta - payload)]  ; rbx = delta (stored offset to OEP)
-    sub rbx, 1
     add rbx, rbp                        ; rbx = original entry point (absolute)
     jmp rbx
 vars:

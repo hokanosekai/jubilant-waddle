@@ -33,7 +33,7 @@ $(OUTPUT_PATH)/injector.obj: $(SOURCE_PATH)/injector.c
 	$(CC) $(CFLAGS) /Fo$@ $(SOURCE_PATH)/injector.c
 
 $(OUTPUT_PATH)/payload.obj: $(SOURCE_PATH)/payload.c
-	$(CC) $(CFLAGS) /GS- /Fo$@ $(SOURCE_PATH)/payload.c
+	$(CC) $(CFLAGS) /Fo$@ $(SOURCE_PATH)/payload.c
 
 $(OUTPUT_PATH)/start_code.obj: $(SOURCE_PATH)/start_code.asm
 	$(AS) $(ASFLAGS) /Fo$@ $(SOURCE_PATH)/start_code.asm
