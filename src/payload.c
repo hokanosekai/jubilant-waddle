@@ -1,6 +1,7 @@
 #include <windows.h>
 #include <winnt.h>
 
+// Type definitions
 typedef struct _UNICODE_STRING {
     USHORT Length;
     USHORT MaximumLength;
@@ -35,12 +36,20 @@ typedef struct _PEB {
     PPEB_LDR_DATA Ldr;
 } PEB, *PPEB;
 
+typedef HMODULE(WINAPI *pLoadLibraryA)(LPCSTR);
+typedef FARPROC(WINAPI *pGetProcAddress)(HMODULE, LPCSTR);
+typedef int (WINAPI *pMessageBoxA)(HWND, LPCSTR, LPCSTR, UINT);
+typedef void (WINAPI *pSleep)(DWORD);
+typedef void (WINAPI *pOutputDebugStringA)(LPCSTR);
+
 // Use MSVC intrinsic for TEB (only works on x64)
 #define NtCurrentPeb() ((PPEB)__readgsqword(0x60))
 
 #pragma section("inject", read, execute)
 
+
 // Hardcoded strings
+__declspec(allocate("inject")) wchar_t kernel32_name[] = L"KERNEL32.DLL";
 __declspec(allocate("inject")) const char user32_name[] = "user32.dll";
 __declspec(allocate("inject")) const char msgboxa_name[] = "MessageBoxA";
 __declspec(allocate("inject")) const char loadlib_name[] = "LoadLibraryA";
@@ -48,39 +57,94 @@ __declspec(allocate("inject")) const char getproc_name[] = "GetProcAddress";
 __declspec(allocate("inject")) const char msg_title[] = "Injected!";
 __declspec(allocate("inject")) const char msg_text[] = "Hello from payload";
 
-// Type definitions
-typedef HMODULE(WINAPI *pLoadLibraryA)(LPCSTR);
-typedef FARPROC(WINAPI *pGetProcAddress)(HMODULE, LPCSTR);
-typedef int (WINAPI *pMessageBoxA)(HWND, LPCSTR, LPCSTR, UINT);
+/**
+ * Compares two strings case-insensitively.
+ * 
+ * @param str1 First string to compare.
+ * @param str2 Second string to compare.
+ * 
+ * @return 0 if the strings are equal, a negative value if str1 < str2, or a positive value if str1 > str2.
+ */
+__declspec(code_seg("inject"))
+int _lstrcmpA(const char* str1, const char* str2) {
+    while (*str1 && *str2) {
+        if (*str1 != *str2) {
+            return *str1 - *str2;
+        }
+        str1++;
+        str2++;
+    }
+    return *str1 - *str2;
+}
 
-// Retrieves kernel32 base address via PEB (no imports)
+/**
+ * Compares two wide-character strings case-insensitively.
+ * 
+ * @param s1 First string to compare.
+ * @param s2 Second string to compare.
+ * 
+ * @return 0 if the strings are equal, a negative value if s1 < s2, or a positive value if s1 > s2.
+ */
+__declspec(code_seg("inject"))
+int _wcsicmp(const wchar_t* s1, const wchar_t* s2) {
+    while (*s1 && *s2) {
+        wchar_t c1 = *s1++;
+        wchar_t c2 = *s2++;
+
+        // Convert to lowercase if uppercase A-Z
+        if (c1 >= L'A' && c1 <= L'Z') c1 += 32;
+        if (c2 >= L'A' && c2 <= L'Z') c2 += 32;
+
+        if (c1 != c2)
+            return c1 - c2;
+    }
+    return *s1 - *s2;
+}
+
+/**
+ * Retrieves the base address of KERNEL32.DLL.
+ * 
+ * This function traverses the PEB's loader data to find the module.
+ * It compares the module names case-insensitively to find "KERNEL32.DLL".
+ * 
+ * @return The base address of KERNEL32.DLL, or NULL if not found.
+ */
 __declspec(code_seg("inject"))
 HMODULE get_kernel32_base() {
-    PPEB peb = (PPEB)__readgsqword(0x60);
+    PPEB peb = NtCurrentPeb();
     PPEB_LDR_DATA ldr = peb->Ldr;
-    PLIST_ENTRY moduleList = &ldr->InMemoryOrderModuleList;
-    PLIST_ENTRY current = moduleList->Flink;
+    PLIST_ENTRY head = &ldr->InMemoryOrderModuleList;
+    PLIST_ENTRY curr = head->Flink;
 
-    while (current != moduleList) {
-        PLDR_DATA_TABLE_ENTRY entry = CONTAINING_RECORD(current, LDR_DATA_TABLE_ENTRY, InMemoryOrderLinks);
-        UNICODE_STRING* name = &entry->BaseDllName;
+    while (curr != head) {
+        PLDR_DATA_TABLE_ENTRY entry = CONTAINING_RECORD(curr, LDR_DATA_TABLE_ENTRY, InMemoryOrderLinks);
+        PUNICODE_STRING name = &entry->BaseDllName;
 
-        if (name->Buffer && name->Length >= 24) { // Enough for "kernel32.dll"
-            WCHAR buf[13] = {0};
-            for (int i = 0; i < 12 && i < name->Length / 2; i++) {
-                WCHAR c = name->Buffer[i];
-                buf[i] = (c >= L'A' && c <= L'Z') ? c + 32 : c;
-            }
-            if (wcsncmp(buf, L"kernel32.dll", 12) == 0) {
-                return (HMODULE)entry->DllBase;
-            }
+        // pre-check for valid name buffer and length
+        if (!name || !name->Buffer || name->Length != 24) {
+            curr = curr->Flink;
+            continue;
         }
-        current = current->Flink;
+
+        // Check if the name matches "KERNEL32.DLL" case-insensitively
+        if (_wcsicmp(name->Buffer, kernel32_name) == 0) {
+            return (HMODULE)entry->DllBase;
+        }
+
+        curr = curr->Flink;
     }
     return NULL;
 }
 
-// Resolve function address by name from export table
+
+/**
+ * Resolves an export function from a module by its name.
+ * 
+ * @param module The module handle to search in.
+ * @param name The name of the function to resolve.
+ * 
+ * @return The address of the function, or NULL if not found.
+ */
 __declspec(code_seg("inject"))
 FARPROC resolve_export(HMODULE module, const char* name) {
     BYTE* base = (BYTE*)module;
@@ -95,7 +159,8 @@ FARPROC resolve_export(HMODULE module, const char* name) {
 
     for (DWORD i = 0; i < exports->NumberOfNames; i++) {
         const char* func_name = (const char*)(base + name_rvas[i]);
-        if (lstrcmpA(func_name, name) == 0) {
+
+        if (_lstrcmpA(func_name, name) == 0) {
             WORD ordinal = ordinals[i];
             return (FARPROC)(base + functions[ordinal]);
         }
@@ -103,27 +168,33 @@ FARPROC resolve_export(HMODULE module, const char* name) {
     return NULL;
 }
 
-// Entry point of payload
+/**
+ * Main payload function that will be executed.
+ * 
+ * This function retrieves the base address of KERNEL32.DLL, resolves necessary functions,
+ * loads user32.dll, and shows a message box.
+ * 
+ * @param unused An unused parameter to demonstrate argument count.
+ * 
+ * @return A value based on the argument count.
+ */
 __declspec(code_seg("inject"))
 int main_payload(int unused) {
     HMODULE kernel32 = get_kernel32_base();
-    if (!kernel32) return -1;
+
+    pGetProcAddress GetProcAddress_ = (pGetProcAddress)resolve_export(kernel32, getproc_name);
 
     // Resolve LoadLibraryA and GetProcAddress manually
     pLoadLibraryA LoadLibraryA_ = (pLoadLibraryA)resolve_export(kernel32, loadlib_name);
-    pGetProcAddress GetProcAddress_ = (pGetProcAddress)resolve_export(kernel32, getproc_name);
-    if (!LoadLibraryA_ || !GetProcAddress_) return -2;
 
     // Load user32.dll
     HMODULE user32 = LoadLibraryA_(user32_name);
-    if (!user32) return -3;
 
     // Resolve MessageBoxA
     pMessageBoxA MessageBoxA_ = (pMessageBoxA)GetProcAddress_(user32, msgboxa_name);
-    if (!MessageBoxA_) return -4;
 
     // Show message box
-    MessageBoxA_(NULL, msg_text, msg_title, MB_OK | MB_ICONINFORMATION);
+    MessageBoxA_(NULL, msg_text, msg_title, MB_OK | MB_ICONINFORMATION | MB_SYSTEMMODAL);
 
-    return 2600 + unused;
+    return 2600 + unused; // Return a value based on the argument count
 }
