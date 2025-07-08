@@ -12,20 +12,21 @@ _next:
     pop rbp
     sub rbp, _next - payload
 
-    sub rsp, 40           ; 32 octets shadow space + 8 pour alignement
+    sub rsp, 40           ; 32 bytes shadow space + 8 for alignment
 
-    mov rcx, 12           ; place l’argument dans rcx
+    mov rcx, 12           ; place argument in rcx
     call main_payload
 
-    add rsp, 40           ; restaure la pile
+    add rsp, 40           ; free shadow space
 
-    ; accès delta value via RIP-relative offset from rbp
+    ; calculate the Original Entry Point (OEP) and jump to it
     mov rbx, [rbp + (delta - payload)]  ; rbx = delta (stored offset to OEP)
     add rbx, rbp                        ; rbx = original entry point (absolute)
     jmp rbx
 vars:
     delta label QWORD
-    dq 0        ; patched with offset of main_payload
+    dq 0        ; /!\ THIS IS A PLACEHOLDER /!\
+                ; The actual delta will be patched by the injector
 payload endp
 
 

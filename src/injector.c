@@ -8,8 +8,10 @@
 #define ALIGN_UP(x, align) (((x) + (align) - 1) & ~((align) - 1))
 #define MAX(x, y) (((x) > (y)) ? (x) : (y))
 
-/*
- * @brief Allocates and loads the target file into memory.
+/**
+ * Allocates and loads the target file into memory.
+ * 
+ * @brief Opens a file and reads its contents into a buffer.
  *
  * @param filename Path to the file to open.
  * @param hFile Pointer to a HANDLE to receive the file handle.
@@ -49,8 +51,10 @@ int load_file(
     return 0;
 }
 
-/*
- * @brief Validates and parses the PE headers.
+/**
+ * Validates and parses the PE headers.
+ * 
+ * @brief Checks the DOS and NT headers for validity and extracts necessary information. In our case, we only want a 64-bit NT header.
  *
  * @param fileBuffer Pointer to the loaded file buffer.
  * @param dos Pointer to receive the IMAGE_DOS_HEADER*.
@@ -78,8 +82,10 @@ int parse_pe_headers(
     return 0;
 }
 
-/*
- * @brief Prepares the new section header for the payload injection.
+/**
+ * Prepares the new section header for the payload injection.
+ * 
+ * @brief Fills the new section header with appropriate values based on the last section.
  *
  * @param newSection Pointer to the IMAGE_SECTION_HEADER to fill.
  * @param lastSection Pointer to the last IMAGE_SECTION_HEADER in the file.
@@ -105,8 +111,10 @@ void prepare_new_section(
     printf("[DEBUG] New section .inj RVA=0x%08X, RAW=0x%08X, size=%lu\n", newSection->VirtualAddress, newSection->PointerToRawData, payload_size);
 }
 
-/*
- * @brief Patches the payload with the correct delta value.
+/**
+ * Patches the payload with the correct delta value.
+ * 
+ * @brief Copies the original payload and patches it with the old entry point offset.
  *
  * @param payload_copy Pointer to the buffer to receive the patched payload.
  * @param payload Pointer to the original payload.
@@ -128,8 +136,10 @@ void patch_payload(
     printf("[DEBUG] Patch delta at offset %zu with value 0x%llX\n", offset_delta, (unsigned long long)oldEntryPointOffset);
 }
 
-/*
- * @brief Updates the PE headers for the new section and entry point.
+/**
+ * Updates the PE headers for the new section and entry point.
+ * 
+ * @brief Increments the number of sections, updates the size of the image, and sets the new entry point.
  *
  * @param nt Pointer to the IMAGE_NT_HEADERS64 to update.
  * @param newSection Pointer to the new IMAGE_SECTION_HEADER.
@@ -151,8 +161,10 @@ void update_pe_headers(
     printf("[DEBUG] New entry point: 0x%08X\n", nt->OptionalHeader.AddressOfEntryPoint);
 }
 
-/*
- * @brief Writes the updated NT headers and section headers to the file.
+/**
+ * Writes the updated NT headers and section headers to the file.
+ * 
+ * @brief Writes the NT headers and all section headers, including the new one, back to the file.
  *
  * @param hFile Handle to the file.
  * @param dos Pointer to the IMAGE_DOS_HEADER.
@@ -192,8 +204,10 @@ int write_headers(
     return 0;
 }
 
-/*
- * @brief Writes the payload to the new section in the file.
+/**
+ * Writes the payload to the new section in the file.
+ * 
+ * @brief Sets the file pointer to the new section's raw data offset and writes the payload.
  *
  * @param hFile Handle to the file.
  * @param newSection Pointer to the new IMAGE_SECTION_HEADER.
@@ -218,8 +232,10 @@ int write_payload(
     return 0;
 }
 
-/*
- * @brief Fills the rest of the new section with zero padding if needed.
+/**
+ * Fills the rest of the new section with zero padding if needed.
+ * 
+ * @brief Checks if the new section's size is larger than the payload size and writes zero bytes to fill the gap.
  *
  * @param hFile Handle to the file.
  * @param newSection Pointer to the new IMAGE_SECTION_HEADER.
@@ -251,8 +267,10 @@ int pad_section(
     return 0;
 }
 
-/*
- * @brief Checks if the PE file is already infected by looking for a section named SECTION_NAME.
+/**
+ * Checks if the PE file is already infected.
+ * 
+ * @brief Checks each section header to see if the target section already exists.
  *
  * @param nt Pointer to the IMAGE_NT_HEADERS64.
  * @param sections Pointer to the first IMAGE_SECTION_HEADER.
@@ -273,8 +291,10 @@ int is_already_infected(
     return 0;
 }
 
-/*
- * @brief Main injection logic, split into helper functions for clarity.
+/**
+ * Main injection logic.
+ * 
+ * @brief Loads the target file, parses its headers, checks for existing infection, prepares a new section, patches the payload, updates headers, and writes everything back to the file.
  *
  * @param filename Path to the file to inject.
  *
@@ -362,8 +382,10 @@ int inject(const char *filename) {
     return 0;
 }
 
-/*
- * @brief Entry point for the injector program.
+/**
+ * Entry point for the injector program.
+ * 
+ * @brief Parses command line arguments and calls the inject function with the provided executable file.
  *
  * @param argc Argument count.
  * @param argv Argument vector.
