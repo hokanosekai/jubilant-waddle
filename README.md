@@ -41,9 +41,9 @@ En lançant la commande `nmake all` vous pouvez compiler le projet et injecter l
 | Nom              | Rôle                                                                 |
 | ---------------- | -------------------------------------------------------------------- |
 | `injector.c`     | Crée une section ".inj", modifie le PE Header, injecte le shellcode |
-| `stage_load.asm` | Début du payload injecté, il permet d'appeler le payload en C puis de retourner à l'entrypoint orignal. |
+| `start_code.asm` | Début du payload injecté, il permet d'appeler le payload en C puis de retourner à l'entrypoint orignal. |
 | `payload.c`   | Contient le code malveillant (MessageBoxA)                             |
-| `end_stub.asm`   | Fin du payload.                               |
+| `end_code.asm`   | Fin du payload.                               |
 | `makefile`       | Script de build avec `cl.exe` et `ml64.exe`                          |
 
 ---
@@ -108,12 +108,12 @@ _restore_state:
 
 ```txt
 +--------------------+
-| stage_load.asm     | --> call payload_main
+| start_code.asm     | --> call payload_main
 |                    | --> jmp OriginalEntryPoint
 +--------------------+
 | payload_main       | --> MessageBoxA()
 +--------------------+
-| end_stub.asm       |
+| end_code.asm       |
 +--------------------+
 ```
 
