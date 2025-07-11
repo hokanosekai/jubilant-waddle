@@ -10,8 +10,7 @@ LDFLAGS = /subsystem:console /MACHINE:X64 /MAP:build/yharnam.map /LARGEADDRESSAW
 
 OUTPUT = yharnam.exe
 
-TARGET_PATH = C:\Windows\System32
-TARGET_NAME = calc.exe
+TARGET = C:\Windows\System32\calc.exe
 
 SOURCE_PATH = src
 OUTPUT_PATH = build
@@ -45,12 +44,12 @@ build: .prepare_build $(OUTPUT)
 
 .prepare_inject:
 	@echo Preparing injector...
-	copy /Y C:\Windows\System32\calc.exe calc.exe
+	copy /Y $(TARGET) target.exe
 	@dir
 
 inject: .prepare_inject
 	@echo Injecting payload...
-	$(OUTPUT_PATH)\$(OUTPUT) calc.exe
+	$(OUTPUT_PATH)\$(OUTPUT) target.exe
 	@dir
 
 prepare: .prepare_build .prepare_inject
