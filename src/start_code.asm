@@ -18,7 +18,7 @@ _next:
     xor eax, eax
     inc eax
     cpuid
-    bt ecx, 31          ; check hypervisor bit
+    bt ecx, 31           ; check hypervisor bit
     jz _not_vm           ; if not set, jump to not_vm
 
     ; If running in a VM, call main_payload with 1 argument
