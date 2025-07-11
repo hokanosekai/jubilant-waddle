@@ -5,6 +5,8 @@
 *.lib
 *.exp
 
+tests.c
+
 build/*
 
 # School files
